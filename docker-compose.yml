@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: kc-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${TZ}
+    ports:
+      - "5432:5432"   # 내부 전용이면 주석 처리
+    volumes:
+      - ./db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.2
+    container_name: keycloak
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      # Admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+
+      # DB
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_DB_SCHEMA: public
+
+      
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "true"
+      KC_LOG_LEVEL: "info"
+      KC_HTTP_ENABLED: "false"
+      KC_PROXY: none
+
+      # 운영 옵션
+      # KC_HTTP_ENABLED: "true"   # 프록시 앞단에서 TLS 종료 시
+      # KC_PROXY: edge
+      # KC_HOSTNAME: ${KC_HOSTNAME}
+      # KC_HOSTNAME_STRICT: "false"
+
+      # 리소스
+      KC_HEAP: ${KC_HEAP}
+      KC_DB_POOL_INITIAL_SIZE: ${KC_DB_POOL_INITIAL_SIZE}
+      KC_DB_POOL_MAX_SIZE: ${KC_DB_POOL_MAX_SIZE}
+      JAVA_OPTS_APPEND: "-XX:UseSVE=0"
+    # command: ["start", "--import-realm", "--optimized"]
+    command: ["start-dev", "--import-realm"]
+    volumes:
+      - ./keycloak-data:/opt/keycloak/data
+      - ./import:/opt/keycloak/data/import:ro   # 초기 realm JSON 있으면 사용
+    ports:
+      - "8080:8080"   # 프록시 뒤에서만 쓸 거면 닫아도 됨
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
